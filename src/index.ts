@@ -38,7 +38,7 @@ io.use(async (socket, next) => {
     const { data, error } = await supabase.auth.getUser(token);
 
     if (error || !data.user) {
-      console.error("❌ Auth failed:", error?.message);
+      console.error("❌ Auth failed: ", error?.message);
       return next(new Error("Authentication failed"));
     }
 
