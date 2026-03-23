@@ -3,15 +3,11 @@ config({ path: ".env.local" });
 
 import { createServer } from "http";
 import { Server } from "socket.io";
-import { createClient } from "@supabase/supabase-js";
+import { supabase } from "./util/supabase.js";
 import { setupSocketHandlers } from "./socket/index.js";
 
 const PORT = parseInt(process.env.PORT || "3001", 10);
-const CLIENT_URL = process.env.CLIENT_URL || "http://localhost:3000";
-
-const supabaseUrl = process.env.SUPABASE_URL!;
-const supabaseAnonKey = process.env.SUPABASE_ANON_KEY!;
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
+const CLIENT_URL = process.env.CLIENT_URL || "*";
 
 const httpServer = createServer((req, res) => {
   if (req.url === "/") {
@@ -42,7 +38,6 @@ io.use(async (socket, next) => {
       return next(new Error("Authentication failed"));
     }
 
-    console.log("✅ User verified:", data.user);
     socket.data.user = data.user;
     next();
   } catch (err) {
