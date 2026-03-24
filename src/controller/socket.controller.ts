@@ -1,9 +1,11 @@
-import { supabase } from "../util/supabase.js";
+import { TableNames } from "@/util/enum.js";
+import { pushNotificationHelper } from "@/util/push.notification.js";
+import { supabase } from "@/util/supabase.js";
 
 const addPushTokenInDB = async (token: string, email: string) => {
   try {
     const { data, error } = await supabase
-      .from("users")
+      .from(TableNames.users)
       .select("pushTokens")
       .eq("email", email)
       .single();
@@ -19,7 +21,7 @@ const addPushTokenInDB = async (token: string, email: string) => {
     if (tokens != null && tokens.includes(token)) return;
 
     const { error: updateError } = await supabase
-      .from("users")
+      .from(TableNames.users)
       .update({ pushTokens: tokens ? [...tokens, token] : [token] })
       .eq("email", email);
 
@@ -35,7 +37,7 @@ const addPushTokenInDB = async (token: string, email: string) => {
 const updateLastSeen = async (email: string) => {
   try {
     const { error } = await supabase
-      .from("users")
+      .from(TableNames.users)
       .update({ lastSeen: new Date().toUTCString() }) // global timezone
       .eq("email", email);
     if (error) {
@@ -47,4 +49,50 @@ const updateLastSeen = async (email: string) => {
   }
 };
 
-export { addPushTokenInDB, updateLastSeen };
+//! whats need to be done here?
+// need to fetch all the users in the room, except the sender and from the users fetch their push tokens
+// then send the notification to all the users
+
+const sendMessageNotification = async ({
+  roomId,
+  senderId,
+  senderName,
+  message,
+  groupName,
+}: {
+  roomId: string;
+  senderId: string;
+  senderName: string;
+  groupName?: string;
+  message: string;
+}) => {
+  try {
+    if (!roomId || !senderId) {
+      console.log("roomId or senderId is not defined");
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from(TableNames.participants)
+      .select("tokens:users!inner (pushTokens)")
+      .neq("userId", senderId)
+      .eq("conversationId", roomId)
+      .not("users.pushTokens", "is", null);
+
+    if (error || !data) {
+      throw error;
+    }
+
+    const tokens = data.map((item: any) => item.tokens.pushTokens).flat();
+
+    await pushNotificationHelper.sendNotifications({
+      tokens: tokens,
+      title: groupName ? groupName : senderName,
+      body: groupName ? `${senderName}: ${message}` : message,
+    });
+  } catch (error) {
+    console.error("❌ Error sending message notification:", error);
+  }
+};
+
+export { addPushTokenInDB, updateLastSeen, sendMessageNotification };

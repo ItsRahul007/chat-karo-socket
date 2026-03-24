@@ -3,8 +3,9 @@ config({ path: ".env.local" });
 
 import { createServer } from "http";
 import { Server } from "socket.io";
-import { supabase } from "./util/supabase.js";
-import { setupSocketHandlers } from "./socket/index.js";
+import { supabase } from "@/util/supabase.js";
+import { setupSocketHandlers } from "@/socket/index.js";
+import { TableNames } from "./util/enum.js";
 
 const PORT = parseInt(process.env.PORT || "3001", 10);
 const CLIENT_URL = process.env.CLIENT_URL || "*";
@@ -38,7 +39,18 @@ io.use(async (socket, next) => {
       return next(new Error("Authentication failed"));
     }
 
-    socket.data.user = data.user;
+    const { data: user, error: userError } = await supabase
+      .from(TableNames.users)
+      .select("*")
+      .eq("email", data.user.email)
+      .single();
+
+    if (userError || !user) {
+      console.error("❌ User not found: ", userError?.message);
+      return next(new Error("User not found"));
+    }
+
+    socket.data.user = user;
     next();
   } catch (err) {
     console.error("❌ Auth error:", (err as Error).message);
