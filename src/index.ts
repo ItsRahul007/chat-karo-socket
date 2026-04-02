@@ -51,6 +51,8 @@ io.use(async (socket, next) => {
     }
 
     socket.data.user = user;
+    console.log("user connected successfully", user.email);
+
     next();
   } catch (err) {
     console.error("❌ Auth error:", (err as Error).message);

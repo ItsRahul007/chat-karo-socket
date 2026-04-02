@@ -2,66 +2,141 @@ import { Server, Socket } from "socket.io";
 import { EmitMessages, ListenMessages } from "@/util/socket.calls.js";
 import {
   addPushTokenInDB,
-  sendMessageNotification,
   updateLastSeen,
+  sendMessageNotification,
+  getParticipantUserIds,
+  sendNotificationToSingleUser,
 } from "@/controller/socket.controller.js";
-import { ChatMessage } from "@/types/index.js";
+import { Message } from "@/types/index.js";
 
-const onlineUsers: Map<string, string | null> = new Map(); // userEmail -> roomId
+const onlineUsers: Map<string, string | null> = new Map(); // userId -> current conversationId (or null)
 
 export function setupSocketHandlers(io: Server): void {
   io.on("connection", (socket: Socket) => {
-    const { id: userId, email: userEmail } = socket.data.user;
+    const userId = String(socket.data.user.id);
+    const userEmail = socket.data.user.email;
 
-    onlineUsers.set(userEmail, null);
-    socket.join(userId);
+    onlineUsers.set(userId, null); // track by userId
+    socket.join(userId); // personal room for inbox updates
+    console.log("user join personal room", userId);
 
     // Join a chat room
-    socket.on(ListenMessages.JOIN_ROOM, (roomId: string) => {
-      socket.join(roomId);
-      onlineUsers.set(userEmail, roomId);
-      console.log(`📌 User ${socket.id} joined room: ${roomId}`);
+    socket.on(ListenMessages.JOIN_ROOM, (rawConversationId: string) => {
+      const conversationId = String(rawConversationId);
+      socket.join(conversationId);
+      onlineUsers.set(userId, conversationId);
+      console.log(`📌 User ${userEmail} joined room: ${conversationId}`);
     });
 
     // Leave a chat room
-    socket.on(ListenMessages.LEAVE_ROOM, (roomId: string) => {
-      socket.leave(roomId);
-      onlineUsers.delete(userEmail);
-      console.log(`📤 User ${socket.id} left room: ${roomId}`);
+    socket.on(ListenMessages.LEAVE_ROOM, (conversationId: string) => {
+      socket.leave(conversationId);
+      onlineUsers.set(userId, null); // still online, just not in any room
+      console.log(`📤 User ${userEmail} left room: ${conversationId}`);
     });
 
     // Send message
     socket.on(
       ListenMessages.SEND_MESSAGE,
-      ({ roomId, message, sender, id }: ChatMessage) => {
-        const payload = {
-          id,
-          message,
-          sender,
-          roomId,
-          timestamp: new Date().toISOString(),
-        };
-        io.to(roomId).emit(EmitMessages.RECEIVE_MESSAGE, payload);
-        console.log(`💬 Message in room ${roomId} from ${sender}`);
+      async ({
+        message,
+        isGroup,
+        receiverId,
+      }: {
+        message: Message;
+        isGroup: boolean;
+        receiverId: string;
+      }) => {
+        const conversationId = String(message.conversationId);
+
+        // 1. Broadcast to everyone currently inside the conversation room (except sender)
+        socket.broadcast
+          .to(conversationId)
+          .emit(EmitMessages.RECEIVE_MESSAGE, message);
+
+        if (!isGroup) {
+          const targetReceiverId = String(receiverId);
+          const isReceiverOnline = onlineUsers.get(targetReceiverId);
+
+          // Only send NEW_MESSAGE and Push Notifications if the receiver is not in the active conversation
+          if (isReceiverOnline !== conversationId) {
+            console.log(
+              `📩 Sending NEW_MESSAGE to user ${targetReceiverId} as they are not in current conversation.`,
+            );
+            io.to(targetReceiverId).emit(EmitMessages.NEW_MESSAGE, message);
+
+            // Send push notification if they are offline or not in the room
+            if (!isReceiverOnline || isReceiverOnline !== conversationId) {
+              sendNotificationToSingleUser({
+                userId: targetReceiverId,
+                message: message.message,
+                senderName: message.sender?.firstName || "New Message",
+              });
+            }
+          }
+          return;
+        }
+
+        // 2. For participants online but NOT in this conversation:
+        console.log(
+          `👥 Targeting group participants for conversation: ${conversationId}`,
+        );
+        const participantUserIds = await getParticipantUserIds(conversationId);
+        const idsToNotify: string[] = [];
+
+        for (const participantId of participantUserIds) {
+          if (participantId === userId) continue; // skip the sender
+          const currentRoom = onlineUsers.get(participantId);
+          if (currentRoom !== conversationId) {
+            io.to(participantId).emit(EmitMessages.NEW_MESSAGE, message);
+            idsToNotify.push(participantId);
+          }
+        }
+
+        // 3. Fire push notifications ONLY for users not currently in the conversation
+        if (idsToNotify.length > 0) {
+          console.log(
+            `🔔 Sending group notifications to: ${idsToNotify.join(", ")}`,
+          );
+          sendMessageNotification({
+            roomId: conversationId,
+            senderId: message.senderId,
+            senderName: message.sender?.firstName || "New Message",
+            message: message.message,
+            participantUserIds: idsToNotify,
+          });
+        }
       },
     );
 
     // Typing indicator
     socket.on(
       ListenMessages.TYPING,
-      (data: { roomId: string; sender: string }) => {
-        socket
-          .to(data.roomId)
-          .emit(EmitMessages.USER_TYPING, { sender: data.sender });
+      ({
+        conversationId: rawConversationId,
+        sender,
+      }: {
+        conversationId: string;
+        sender: string;
+      }) => {
+        const conversationId = String(rawConversationId);
+        socket.to(conversationId).emit(EmitMessages.USER_TYPING, { sender });
       },
     );
 
     socket.on(
       ListenMessages.STOP_TYPING,
-      (data: { roomId: string; sender: string }) => {
+      ({
+        conversationId: rawConversationId,
+        sender,
+      }: {
+        conversationId: string;
+        sender: string;
+      }) => {
+        const conversationId = String(rawConversationId);
         socket
-          .to(data.roomId)
-          .emit(EmitMessages.USER_STOP_TYPING, { sender: data.sender });
+          .to(conversationId)
+          .emit(EmitMessages.USER_STOP_TYPING, { sender });
       },
     );
 
@@ -72,9 +147,9 @@ export function setupSocketHandlers(io: Server): void {
 
     // Disconnect
     socket.on(ListenMessages.DISCONNECT, async () => {
-      console.log(`❌ User disconnected: ${socket.id}`);
+      console.log(`❌ User disconnected: ${userId}`);
       await updateLastSeen(userEmail);
-      onlineUsers.delete(userEmail);
+      onlineUsers.delete(userId);
     });
   });
 }

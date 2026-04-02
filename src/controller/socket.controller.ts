@@ -49,22 +49,24 @@ const updateLastSeen = async (email: string) => {
   }
 };
 
-//! whats need to be done here?
-// need to fetch all the users in the room, except the sender and from the users fetch their push tokens
-// then send the notification to all the users
-
+/*
+ * fetch all the users's push tokens in the room, except the sender
+ * then send the notification to all the users
+ */
 const sendMessageNotification = async ({
   roomId,
   senderId,
   senderName,
   message,
   groupName,
+  participantUserIds,
 }: {
   roomId: string;
   senderId: string;
   senderName: string;
   groupName?: string;
   message: string;
+  participantUserIds?: string[]; // only notify these users (those not currently in the room)
 }) => {
   try {
     if (!roomId || !senderId) {
@@ -72,12 +74,19 @@ const sendMessageNotification = async ({
       return;
     }
 
-    const { data, error } = await supabase
+    let query = supabase
       .from(TableNames.participants)
       .select("tokens:users!inner (pushTokens)")
       .neq("userId", senderId)
       .eq("conversationId", roomId)
       .not("users.pushTokens", "is", null);
+
+    // If specific participant IDs are provided, only query those
+    if (participantUserIds && participantUserIds.length > 0) {
+      query = query.in("userId", participantUserIds);
+    }
+
+    const { data, error } = await query;
 
     if (error || !data) {
       throw error;
@@ -95,4 +104,60 @@ const sendMessageNotification = async ({
   }
 };
 
-export { addPushTokenInDB, updateLastSeen, sendMessageNotification };
+const sendNotificationToSingleUser = async ({
+  userId,
+  message,
+  senderName,
+}: {
+  userId: string;
+  message: string;
+  senderName: string;
+}) => {
+  try {
+    const { data, error } = await supabase
+      .from(TableNames.users)
+      .select("pushTokens")
+      .eq("id", userId)
+      .single();
+
+    if (error || !data) {
+      throw error;
+    }
+
+    const tokens = data.pushTokens;
+
+    await pushNotificationHelper.sendNotifications({
+      tokens: tokens,
+      title: senderName,
+      body: message,
+    });
+  } catch (error) {
+    console.error("❌ Error sending message notification:", error);
+  }
+};
+
+const getParticipantUserIds = async (
+  conversationId: string,
+): Promise<string[]> => {
+  try {
+    const { data, error } = await supabase
+      .from(TableNames.participants)
+      .select("userId")
+      .eq("conversationId", conversationId);
+
+    if (error || !data) return [];
+
+    return data.map((p: { userId: string }) => p.userId);
+  } catch (error) {
+    console.error("❌ Error fetching participants:", error);
+    return [];
+  }
+};
+
+export {
+  addPushTokenInDB,
+  updateLastSeen,
+  sendMessageNotification,
+  getParticipantUserIds,
+  sendNotificationToSingleUser,
+};
