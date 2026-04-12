@@ -40,6 +40,7 @@ interface Message {
   isDeleted: boolean;
   isEdited: boolean;
   mentionMessageId: string | null;
+  senderName?: string;
   sender?: {
     firstName: string;
     lastName: string;

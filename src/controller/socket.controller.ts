@@ -58,15 +58,17 @@ const sendMessageNotification = async ({
   senderId,
   senderName,
   message,
-  groupName,
   participantUserIds,
+  isCommunity = false,
+  conversationId,
 }: {
   roomId: string;
   senderId: string;
   senderName: string;
-  groupName?: string;
   message: string;
-  participantUserIds?: string[]; // only notify these users (those not currently in the room)
+  participantUserIds?: string[];
+  isCommunity?: boolean;
+  conversationId?: string;
 }) => {
   try {
     if (!roomId || !senderId) {
@@ -93,6 +95,23 @@ const sendMessageNotification = async ({
     }
 
     const tokens = data.map((item: any) => item.tokens.pushTokens).flat();
+
+    let groupName = null;
+
+    if (isCommunity && conversationId) {
+      const { data: conversationData, error: conversationError } =
+        await supabase
+          .from(TableNames.conversations)
+          .select("groupName")
+          .eq("id", conversationId)
+          .single();
+
+      if (conversationError || !conversationData) {
+        throw conversationError;
+      }
+
+      groupName = conversationData.groupName;
+    }
 
     await pushNotificationHelper.sendNotifications({
       tokens: tokens,
@@ -147,7 +166,7 @@ const getParticipantUserIds = async (
 
     if (error || !data) return [];
 
-    return data.map((p: { userId: string }) => p.userId);
+    return data.map((p: { userId: string }) => p.userId.toString());
   } catch (error) {
     console.error("❌ Error fetching participants:", error);
     return [];

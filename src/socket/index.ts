@@ -15,6 +15,8 @@ export function setupSocketHandlers(io: Server): void {
   io.on("connection", (socket: Socket) => {
     const userId = String(socket.data.user.id);
     const userEmail = socket.data.user.email;
+    const userFullName =
+      socket.data.user.firstName + " " + socket.data.user.lastName;
 
     onlineUsers.set(userId, null); // track by userId
     socket.join(userId); // personal room for inbox updates
@@ -39,22 +41,38 @@ export function setupSocketHandlers(io: Server): void {
     socket.on(
       ListenMessages.SEND_MESSAGE,
       async ({
-        message,
-        isGroup,
+        message: rawMessage,
+        isCommunity,
         receiverId,
       }: {
         message: Message;
-        isGroup: boolean;
+        isCommunity: boolean;
         receiverId: string;
       }) => {
-        const conversationId = String(message.conversationId);
+        const conversationId = String(rawMessage.conversationId);
 
-        // 1. Broadcast to everyone currently inside the conversation room (except sender)
-        socket.broadcast
-          .to(conversationId)
-          .emit(EmitMessages.RECEIVE_MESSAGE, message);
+        let message: Message = rawMessage;
 
-        if (!isGroup) {
+        //* add sender details for community message
+        if (isCommunity) {
+          message = {
+            ...rawMessage,
+            senderName: socket.data.user.firstName,
+            sender: {
+              firstName: socket.data.user.firstName,
+              lastName: socket.data.user.lastName,
+              avatar: socket.data.user.avatar,
+            },
+          };
+        }
+
+        // Broadcast to everyone currently inside the conversation room (except sender)
+        socket.to(conversationId).emit(EmitMessages.RECEIVE_MESSAGE, {
+          message,
+          isCommunity,
+        });
+
+        if (!isCommunity) {
           const targetReceiverId = String(receiverId);
           const isReceiverOnline = onlineUsers.get(targetReceiverId);
 
@@ -63,14 +81,17 @@ export function setupSocketHandlers(io: Server): void {
             console.log(
               `📩 Sending NEW_MESSAGE to user ${targetReceiverId} as they are not in current conversation.`,
             );
-            io.to(targetReceiverId).emit(EmitMessages.NEW_MESSAGE, message);
+            io.to(targetReceiverId).emit(EmitMessages.NEW_MESSAGE, {
+              message,
+              isCommunity,
+            });
 
             // Send push notification if they are offline or not in the room
             if (!isReceiverOnline || isReceiverOnline !== conversationId) {
               sendNotificationToSingleUser({
                 userId: targetReceiverId,
                 message: message.message,
-                senderName: message.sender?.firstName || "New Message",
+                senderName: userFullName || "New Message",
               });
             }
           }
@@ -88,7 +109,10 @@ export function setupSocketHandlers(io: Server): void {
           if (participantId === userId) continue; // skip the sender
           const currentRoom = onlineUsers.get(participantId);
           if (currentRoom !== conversationId) {
-            io.to(participantId).emit(EmitMessages.NEW_MESSAGE, message);
+            io.to(participantId).emit(EmitMessages.NEW_MESSAGE, {
+              message,
+              isCommunity,
+            });
             idsToNotify.push(participantId);
           }
         }
@@ -101,9 +125,11 @@ export function setupSocketHandlers(io: Server): void {
           sendMessageNotification({
             roomId: conversationId,
             senderId: message.senderId,
-            senderName: message.sender?.firstName || "New Message",
+            senderName: userFullName || "New Message",
             message: message.message,
             participantUserIds: idsToNotify,
+            isCommunity: true,
+            conversationId,
           });
         }
       },
@@ -142,6 +168,7 @@ export function setupSocketHandlers(io: Server): void {
 
     // Register push token
     socket.on(ListenMessages.REGISTER_PUSH_TOKEN, async (token: string) => {
+      // extract device id
       await addPushTokenInDB(token, userEmail);
     });
 
