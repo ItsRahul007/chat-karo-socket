@@ -6,6 +6,7 @@ import {
   sendMessageNotification,
   getParticipantUserIds,
   sendNotificationToSingleUser,
+  removeCommunityMember,
 } from "@/controller/socket.controller.js";
 import { Message } from "@/types/index.js";
 
@@ -44,10 +45,12 @@ export function setupSocketHandlers(io: Server): void {
         message: rawMessage,
         isCommunity,
         receiverId,
+        isNewChat,
       }: {
         message: Message;
         isCommunity: boolean;
         receiverId: string;
+        isNewChat: boolean;
       }) => {
         const conversationId = String(rawMessage.conversationId);
 
@@ -67,10 +70,12 @@ export function setupSocketHandlers(io: Server): void {
         }
 
         // Broadcast to everyone currently inside the conversation room (except sender)
-        socket.to(conversationId).emit(EmitMessages.RECEIVE_MESSAGE, {
-          message,
-          isCommunity,
-        });
+        if (!isNewChat) {
+          socket.to(conversationId).emit(EmitMessages.RECEIVE_MESSAGE, {
+            message,
+            isCommunity,
+          });
+        }
 
         if (!isCommunity) {
           const targetReceiverId = String(receiverId);
@@ -84,6 +89,7 @@ export function setupSocketHandlers(io: Server): void {
             io.to(targetReceiverId).emit(EmitMessages.NEW_MESSAGE, {
               message,
               isCommunity,
+              isNewChat,
             });
 
             // Send push notification if they are offline or not in the room
@@ -171,6 +177,29 @@ export function setupSocketHandlers(io: Server): void {
       // extract device id
       await addPushTokenInDB(token, userEmail);
     });
+
+    socket.on(
+      ListenMessages.REMOVE_COMMUNITY_MEMBER,
+      async ({
+        conversationId,
+        userId: removerId,
+      }: {
+        conversationId: string;
+        userId: string;
+      }) => {
+        const isSuccess = await removeCommunityMember({
+          conversationId,
+          userId: removerId,
+          myUserId: userId,
+          myFullName: userFullName,
+        });
+
+        socket.emit(EmitMessages.USER_REMOVED_FROM_COMMUNITY, {
+          success: isSuccess,
+          conversationId,
+        });
+      },
+    );
 
     // Disconnect
     socket.on(ListenMessages.DISCONNECT, async () => {

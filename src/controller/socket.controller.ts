@@ -80,6 +80,8 @@ const sendMessageNotification = async ({
       .from(TableNames.participants)
       .select("tokens:users!inner (pushTokens)")
       .neq("userId", senderId)
+      .neq("isMuted", true)
+      .neq("isBlocked", true)
       .eq("conversationId", roomId)
       .not("users.pushTokens", "is", null);
 
@@ -173,10 +175,84 @@ const getParticipantUserIds = async (
   }
 };
 
+const removeCommunityMember = async ({
+  conversationId,
+  userId,
+  myUserId,
+  myFullName,
+}: {
+  conversationId: string;
+  userId: string; //* the one I'll remove
+  myUserId: string; //* the one who is removing
+  myFullName: string;
+}): Promise<boolean> => {
+  try {
+    //* first check if the user is an admin/owner or not
+    const { data: participantData, error: participantError } = await supabase
+      .from(TableNames.participants)
+      .select("isAdmin, isOwner")
+      .eq("conversationId", conversationId)
+      .eq("userId", myUserId)
+      .single();
+
+    if (participantError || !participantData) {
+      throw participantError;
+    }
+
+    if (!participantData.isAdmin && !participantData.isOwner) {
+      throw new Error("You are not authorized to remove community member");
+    }
+
+    //* remove the user from the group by deleting participant
+    const { error } = await supabase
+      .from(TableNames.participants)
+      .delete()
+      .eq("conversationId", conversationId)
+      .eq("userId", userId);
+
+    if (error) {
+      // console.error("❌ Error removing community member:", error);
+      // return;
+      throw error;
+    }
+
+    const { data: removedUserData, error: removedUserError } = await supabase
+      .from(TableNames.users)
+      .select("firstName, lastName")
+      .eq("id", userId)
+      .single();
+
+    if (removedUserError || !removedUserData) {
+      throw removedUserError;
+    }
+
+    //* create a information message that user (name) has removed by (name)
+    const { error: messageError } = await supabase
+      .from(TableNames.messages)
+      .insert({
+        conversationId,
+        senderId: myUserId,
+        message: `${removedUserData.firstName} ${removedUserData.lastName} has been removed by ${myFullName} 🦶`,
+        isSystemMessage: true,
+      })
+      .select()
+      .single();
+
+    if (messageError) {
+      throw messageError;
+    }
+    return true;
+  } catch (error) {
+    console.error("❌ Error removing community member:", error);
+    return false;
+  }
+};
+
 export {
   addPushTokenInDB,
   updateLastSeen,
   sendMessageNotification,
   getParticipantUserIds,
   sendNotificationToSingleUser,
+  removeCommunityMember,
 };
