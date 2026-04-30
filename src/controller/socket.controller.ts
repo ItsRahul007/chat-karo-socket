@@ -119,6 +119,10 @@ const sendMessageNotification = async ({
       tokens: tokens,
       title: groupName ? groupName : senderName,
       body: groupName ? `${senderName}: ${message}` : message,
+      data: {
+        conversationId,
+        chatWithId: senderId,
+      },
     });
   } catch (error) {
     console.error("❌ Error sending message notification:", error);
@@ -127,10 +131,14 @@ const sendMessageNotification = async ({
 
 const sendNotificationToSingleUser = async ({
   userId,
+  myId,
+  roomId,
   message,
   senderName,
 }: {
   userId: string;
+  myId: string;
+  roomId: string;
   message: string;
   senderName: string;
 }) => {
@@ -151,6 +159,10 @@ const sendNotificationToSingleUser = async ({
       tokens: tokens,
       title: senderName,
       body: message,
+      data: {
+        conversationId: roomId,
+        chatWithId: myId,
+      },
     });
   } catch (error) {
     console.error("❌ Error sending message notification:", error);
@@ -248,6 +260,51 @@ const removeCommunityMember = async ({
   }
 };
 
+const makeOrRemoveAdmin = async ({
+  conversationId,
+  userId,
+  myUserId,
+  makeAdmin,
+}: {
+  conversationId: string;
+  userId: string;
+  myUserId: string;
+  makeAdmin: boolean;
+}) => {
+  try {
+    //* first check if the user is an admin/owner or not
+    const { data: participantData, error: participantError } = await supabase
+      .from(TableNames.participants)
+      .select("isAdmin, isOwner")
+      .eq("conversationId", conversationId)
+      .eq("userId", myUserId)
+      .single();
+
+    if (participantError || !participantData) {
+      throw participantError;
+    }
+
+    if (!participantData.isAdmin && !participantData.isOwner) {
+      console.log(participantData, myUserId, conversationId);
+
+      throw new Error("❌ You are not authorized to make someone admin");
+    }
+
+    //* make the user admin
+    const { error } = await supabase
+      .from(TableNames.participants)
+      .update({ isAdmin: makeAdmin })
+      .eq("conversationId", conversationId)
+      .eq("userId", userId);
+
+    if (error) {
+      throw error;
+    }
+  } catch (error) {
+    console.error("❌ Error making someone admin:", error);
+  }
+};
+
 export {
   addPushTokenInDB,
   updateLastSeen,
@@ -255,4 +312,5 @@ export {
   getParticipantUserIds,
   sendNotificationToSingleUser,
   removeCommunityMember,
+  makeOrRemoveAdmin,
 };

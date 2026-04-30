@@ -7,6 +7,7 @@ import {
   getParticipantUserIds,
   sendNotificationToSingleUser,
   removeCommunityMember,
+  makeOrRemoveAdmin,
 } from "@/controller/socket.controller.js";
 import { Message } from "@/types/index.js";
 
@@ -14,27 +15,27 @@ const onlineUsers: Map<string, string | null> = new Map(); // userId -> current 
 
 export function setupSocketHandlers(io: Server): void {
   io.on("connection", (socket: Socket) => {
-    const userId = String(socket.data.user.id);
+    const myUserId = String(socket.data.user.id);
     const userEmail = socket.data.user.email;
     const userFullName =
       socket.data.user.firstName + " " + socket.data.user.lastName;
 
-    onlineUsers.set(userId, null); // track by userId
-    socket.join(userId); // personal room for inbox updates
-    console.log("user join personal room", userId);
+    onlineUsers.set(myUserId, null); // track by myUserId
+    socket.join(myUserId); // personal room for inbox updates
+    console.log("user join personal room", myUserId);
 
     // Join a chat room
     socket.on(ListenMessages.JOIN_ROOM, (rawConversationId: string) => {
       const conversationId = String(rawConversationId);
       socket.join(conversationId);
-      onlineUsers.set(userId, conversationId);
+      onlineUsers.set(myUserId, conversationId);
       console.log(`📌 User ${userEmail} joined room: ${conversationId}`);
     });
 
     // Leave a chat room
     socket.on(ListenMessages.LEAVE_ROOM, (conversationId: string) => {
       socket.leave(conversationId);
-      onlineUsers.set(userId, null); // still online, just not in any room
+      onlineUsers.set(myUserId, null); // still online, just not in any room
       console.log(`📤 User ${userEmail} left room: ${conversationId}`);
     });
 
@@ -83,9 +84,6 @@ export function setupSocketHandlers(io: Server): void {
 
           // Only send NEW_MESSAGE and Push Notifications if the receiver is not in the active conversation
           if (isReceiverOnline !== conversationId) {
-            console.log(
-              `📩 Sending NEW_MESSAGE to user ${targetReceiverId} as they are not in current conversation.`,
-            );
             io.to(targetReceiverId).emit(EmitMessages.NEW_MESSAGE, {
               message,
               isCommunity,
@@ -93,11 +91,17 @@ export function setupSocketHandlers(io: Server): void {
             });
 
             // Send push notification if they are offline or not in the room
-            if (!isReceiverOnline || isReceiverOnline !== conversationId) {
+            if (
+              !isReceiverOnline ||
+              isReceiverOnline !== conversationId ||
+              !message.isEdited
+            ) {
               sendNotificationToSingleUser({
                 userId: targetReceiverId,
+                myId: myUserId,
                 message: message.message,
                 senderName: userFullName || "New Message",
+                roomId: conversationId,
               });
             }
           }
@@ -105,14 +109,11 @@ export function setupSocketHandlers(io: Server): void {
         }
 
         // 2. For participants online but NOT in this conversation:
-        console.log(
-          `👥 Targeting group participants for conversation: ${conversationId}`,
-        );
         const participantUserIds = await getParticipantUserIds(conversationId);
         const idsToNotify: string[] = [];
 
         for (const participantId of participantUserIds) {
-          if (participantId === userId) continue; // skip the sender
+          if (participantId === myUserId) continue; // skip the sender
           const currentRoom = onlineUsers.get(participantId);
           if (currentRoom !== conversationId) {
             io.to(participantId).emit(EmitMessages.NEW_MESSAGE, {
@@ -124,13 +125,10 @@ export function setupSocketHandlers(io: Server): void {
         }
 
         // 3. Fire push notifications ONLY for users not currently in the conversation
-        if (idsToNotify.length > 0) {
-          console.log(
-            `🔔 Sending group notifications to: ${idsToNotify.join(", ")}`,
-          );
+        if (idsToNotify.length > 0 && !message.isEdited) {
           sendMessageNotification({
             roomId: conversationId,
-            senderId: message.senderId,
+            senderId: myUserId,
             senderName: userFullName || "New Message",
             message: message.message,
             participantUserIds: idsToNotify,
@@ -182,15 +180,15 @@ export function setupSocketHandlers(io: Server): void {
       ListenMessages.REMOVE_COMMUNITY_MEMBER,
       async ({
         conversationId,
-        userId: removerId,
+        userId,
       }: {
         conversationId: string;
         userId: string;
       }) => {
         const isSuccess = await removeCommunityMember({
           conversationId,
-          userId: removerId,
-          myUserId: userId,
+          userId,
+          myUserId,
           myFullName: userFullName,
         });
 
@@ -201,11 +199,47 @@ export function setupSocketHandlers(io: Server): void {
       },
     );
 
+    socket.on(
+      ListenMessages.MAKE_ADMIN,
+      async ({
+        conversationId,
+        userId,
+      }: {
+        conversationId: string;
+        userId: string;
+      }) => {
+        await makeOrRemoveAdmin({
+          conversationId,
+          userId,
+          myUserId,
+          makeAdmin: true,
+        });
+      },
+    );
+
+    socket.on(
+      ListenMessages.DISMISS_ADMIN,
+      async ({
+        conversationId,
+        userId,
+      }: {
+        conversationId: string;
+        userId: string;
+      }) => {
+        await makeOrRemoveAdmin({
+          conversationId,
+          userId,
+          myUserId,
+          makeAdmin: false,
+        });
+      },
+    );
+
     // Disconnect
     socket.on(ListenMessages.DISCONNECT, async () => {
-      console.log(`❌ User disconnected: ${userId}`);
+      console.log(`❌ User disconnected: ${myUserId}`);
       await updateLastSeen(userEmail);
-      onlineUsers.delete(userId);
+      onlineUsers.delete(myUserId);
     });
   });
 }
