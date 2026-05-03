@@ -36,9 +36,11 @@ const addPushTokenInDB = async (token: string, email: string) => {
 
 const updateLastSeen = async (email: string) => {
   try {
+    const date = new Date().toUTCString();
+
     const { error } = await supabase
       .from(TableNames.users)
-      .update({ lastSeen: new Date().toUTCString() }) // global timezone
+      .update({ lastSeen: date }) // global timezone
       .eq("email", email);
     if (error) {
       console.error("❌ Error updating last seen:", error);
@@ -305,6 +307,25 @@ const makeOrRemoveAdmin = async ({
   }
 };
 
+const getUserLastSeen = async (userId: string) => {
+  try {
+    const { data, error } = await supabase
+      .from(TableNames.users)
+      .select("lastSeen")
+      .eq("id", userId)
+      .single();
+
+    if (error || !data || !data.lastSeen) {
+      return "";
+    }
+
+    return data.lastSeen;
+  } catch (error) {
+    console.error("❌ Error getting user last seen:", error);
+    return "";
+  }
+};
+
 export {
   addPushTokenInDB,
   updateLastSeen,
@@ -313,4 +334,5 @@ export {
   sendNotificationToSingleUser,
   removeCommunityMember,
   makeOrRemoveAdmin,
+  getUserLastSeen,
 };

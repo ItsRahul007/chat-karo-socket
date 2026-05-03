@@ -8,6 +8,7 @@ import {
   sendNotificationToSingleUser,
   removeCommunityMember,
   makeOrRemoveAdmin,
+  getUserLastSeen,
 } from "@/controller/socket.controller.js";
 import { Message } from "@/types/index.js";
 
@@ -23,6 +24,11 @@ export function setupSocketHandlers(io: Server): void {
     onlineUsers.set(myUserId, null); // track by myUserId
     socket.join(myUserId); // personal room for inbox updates
     console.log("user join personal room", myUserId);
+
+    socket.broadcast.emit(EmitMessages.RECEIVE_USER_STATUS, {
+      userId: myUserId,
+      userStatus: "Online",
+    });
 
     // Join a chat room
     socket.on(ListenMessages.JOIN_ROOM, (rawConversationId: string) => {
@@ -235,11 +241,32 @@ export function setupSocketHandlers(io: Server): void {
       },
     );
 
+    // Get user status
+    socket.on(ListenMessages.GET_USER_STATUS, async (userId: string) => {
+      const isOnline = onlineUsers.has(userId);
+      let userStatus = "";
+      if (isOnline) {
+        userStatus = "Online";
+      } else {
+        userStatus = await getUserLastSeen(userId);
+      }
+
+      socket.emit(EmitMessages.RECEIVE_USER_STATUS, {
+        userId,
+        userStatus,
+      });
+    });
+
     // Disconnect
     socket.on(ListenMessages.DISCONNECT, async () => {
       console.log(`❌ User disconnected: ${myUserId}`);
       await updateLastSeen(userEmail);
       onlineUsers.delete(myUserId);
+
+      socket.broadcast.emit(EmitMessages.RECEIVE_USER_STATUS, {
+        userId: myUserId,
+        userStatus: new Date().toUTCString(),
+      });
     });
   });
 }
