@@ -150,13 +150,27 @@ export function setupSocketHandlers(io: Server): void {
       ListenMessages.TYPING,
       ({
         conversationId: rawConversationId,
-        sender,
+        chatWithId,
+        isCommunity,
       }: {
         conversationId: string;
-        sender: string;
+        chatWithId: string;
+        isCommunity: boolean;
       }) => {
         const conversationId = String(rawConversationId);
-        socket.to(conversationId).emit(EmitMessages.USER_TYPING, { sender });
+        socket.to(conversationId).emit(EmitMessages.USER_TYPING, {
+          sender: userFullName,
+          userId: myUserId,
+          conversationId,
+        });
+
+        if (!isCommunity) {
+          io.to(chatWithId).emit(EmitMessages.USER_TYPING, {
+            sender: userFullName,
+            userId: myUserId,
+            conversationId,
+          });
+        }
       },
     );
 
@@ -164,15 +178,27 @@ export function setupSocketHandlers(io: Server): void {
       ListenMessages.STOP_TYPING,
       ({
         conversationId: rawConversationId,
-        sender,
+        chatWithId,
+        isCommunity,
       }: {
         conversationId: string;
-        sender: string;
+        chatWithId: string;
+        isCommunity: boolean;
       }) => {
         const conversationId = String(rawConversationId);
-        socket
-          .to(conversationId)
-          .emit(EmitMessages.USER_STOP_TYPING, { sender });
+        socket.to(conversationId).emit(EmitMessages.USER_STOP_TYPING, {
+          sender: userFullName,
+          userId: myUserId,
+          conversationId,
+        });
+
+        if (!isCommunity) {
+          io.to(chatWithId).emit(EmitMessages.USER_STOP_TYPING, {
+            sender: userFullName,
+            userId: myUserId,
+            conversationId,
+          });
+        }
       },
     );
 
