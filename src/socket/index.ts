@@ -13,6 +13,8 @@ import {
 import { Message } from "@/types/index.js";
 
 const onlineUsers: Map<string, string | null> = new Map(); // userId -> current conversationId (or null)
+// Track which users are currently in a call: userId -> callId (conversationId)
+const activeCalls: Map<string, string> = new Map();
 
 export function setupSocketHandlers(io: Server): void {
   io.on("connection", (socket: Socket) => {
@@ -20,6 +22,7 @@ export function setupSocketHandlers(io: Server): void {
     const userEmail = socket.data.user.email;
     const userFullName =
       socket.data.user.firstName + " " + socket.data.user.lastName;
+    const userAvatar = socket.data.user.avatar;
 
     onlineUsers.set(myUserId, null); // track by myUserId
     socket.join(myUserId); // personal room for inbox updates
@@ -283,11 +286,184 @@ export function setupSocketHandlers(io: Server): void {
       });
     });
 
+    // ─── Call signaling ──────────────────────────────────────────────
+    // Initiate a call (1-to-1 or community)
+    socket.on(
+      ListenMessages.CALL_INITIATE,
+      async ({
+        calleeId,
+        callType,
+        conversationId,
+        isCommunity,
+      }: {
+        calleeId?: string;
+        callType: "audio" | "video";
+        conversationId: string;
+        isCommunity: boolean;
+      }) => {
+        const callPayload = {
+          callerId: myUserId,
+          callerName: userFullName,
+          callerAvatar: userAvatar,
+          callType,
+          conversationId,
+          isCommunity,
+        };
+
+        // Mark caller as in-call
+        activeCalls.set(myUserId, conversationId);
+
+        if (!isCommunity && calleeId) {
+          // 1-to-1 call
+          const targetId = String(calleeId);
+
+          // Check if callee is already in a call
+          if (activeCalls.has(targetId)) {
+            socket.emit(EmitMessages.CALL_BUSY, { conversationId });
+            activeCalls.delete(myUserId);
+            return;
+          }
+
+          io.to(targetId).emit(EmitMessages.INCOMING_CALL, callPayload);
+          console.log(
+            `📞 ${userEmail} calling ${targetId} (${callType}) in conversation ${conversationId}`,
+          );
+        } else {
+          // Community call — notify all participants except caller
+          const participantUserIds =
+            await getParticipantUserIds(conversationId);
+          for (const pid of participantUserIds) {
+            if (pid === myUserId) continue;
+            // Skip users who are already in a call
+            if (activeCalls.has(pid)) continue;
+            io.to(pid).emit(EmitMessages.INCOMING_CALL, callPayload);
+          }
+          console.log(
+            `📞 ${userEmail} started a community call (${callType}) in ${conversationId}`,
+          );
+        }
+      },
+    );
+
+    // Callee accepts
+    socket.on(
+      ListenMessages.CALL_ACCEPT,
+      ({
+        callerId,
+        conversationId,
+      }: {
+        callerId: string;
+        conversationId: string;
+      }) => {
+        activeCalls.set(myUserId, conversationId);
+        io.to(String(callerId)).emit(EmitMessages.CALL_ACCEPTED, {
+          acceptedBy: myUserId,
+          conversationId,
+        });
+        console.log(
+          `✅ ${userEmail} accepted call from ${callerId} in ${conversationId}`,
+        );
+      },
+    );
+
+    // Callee rejects
+    socket.on(
+      ListenMessages.CALL_REJECT,
+      ({
+        callerId,
+        conversationId,
+      }: {
+        callerId: string;
+        conversationId: string;
+      }) => {
+        io.to(String(callerId)).emit(EmitMessages.CALL_REJECTED, {
+          rejectedBy: myUserId,
+          conversationId,
+        });
+        console.log(
+          `❌ ${userEmail} rejected call from ${callerId} in ${conversationId}`,
+        );
+      },
+    );
+
+    // End call
+    socket.on(
+      ListenMessages.CALL_END,
+      async ({
+        otherUserId,
+        conversationId,
+        isCommunity,
+      }: {
+        otherUserId?: string;
+        conversationId: string;
+        isCommunity: boolean;
+      }) => {
+        activeCalls.delete(myUserId);
+
+        if (!isCommunity && otherUserId) {
+          activeCalls.delete(String(otherUserId));
+          io.to(String(otherUserId)).emit(EmitMessages.CALL_ENDED, {
+            endedBy: myUserId,
+            conversationId,
+          });
+        } else {
+          // Community call — notify all participants
+          const participantUserIds =
+            await getParticipantUserIds(conversationId);
+          for (const pid of participantUserIds) {
+            if (pid === myUserId) continue;
+            activeCalls.delete(pid);
+            io.to(pid).emit(EmitMessages.CALL_ENDED, {
+              endedBy: myUserId,
+              conversationId,
+            });
+          }
+        }
+        console.log(`📞 ${userEmail} ended call in ${conversationId}`);
+      },
+    );
+
+    // ─── WebRTC signaling relay ──────────────────────────────────────
+    socket.on(
+      ListenMessages.WEBRTC_OFFER,
+      ({ targetId, offer }: { targetId: string; offer: any }) => {
+        io.to(String(targetId)).emit(EmitMessages.WEBRTC_OFFER, {
+          offer,
+          from: myUserId,
+        });
+      },
+    );
+
+    socket.on(
+      ListenMessages.WEBRTC_ANSWER,
+      ({ targetId, answer }: { targetId: string; answer: any }) => {
+        io.to(String(targetId)).emit(EmitMessages.WEBRTC_ANSWER, {
+          answer,
+          from: myUserId,
+        });
+      },
+    );
+
+    socket.on(
+      ListenMessages.ICE_CANDIDATE,
+      ({ targetId, candidate }: { targetId: string; candidate: any }) => {
+        io.to(String(targetId)).emit(EmitMessages.ICE_CANDIDATE, {
+          candidate,
+          from: myUserId,
+        });
+      },
+    );
+
     // Disconnect
     socket.on(ListenMessages.DISCONNECT, async () => {
       console.log(`❌ User disconnected: ${myUserId}`);
       await updateLastSeen(userEmail);
       onlineUsers.delete(myUserId);
+
+      // Clean up any active call
+      if (activeCalls.has(myUserId)) {
+        activeCalls.delete(myUserId);
+      }
 
       socket.broadcast.emit(EmitMessages.RECEIVE_USER_STATUS, {
         userId: myUserId,

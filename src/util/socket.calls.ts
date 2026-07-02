@@ -9,6 +9,16 @@ enum EmitMessages {
   USER_STOP_TYPING = "user-stop-typing",
   USER_REMOVED_FROM_COMMUNITY = "user-removed-from-community",
   RECEIVE_USER_STATUS = "receive-user-status",
+
+  // ─── Call signaling (server → client) ──────────────────────────────
+  INCOMING_CALL = "incoming-call",
+  CALL_ACCEPTED = "call-accepted",
+  CALL_REJECTED = "call-rejected",
+  CALL_ENDED = "call-ended",
+  CALL_BUSY = "call-busy",
+  WEBRTC_OFFER = "webrtc-offer",
+  WEBRTC_ANSWER = "webrtc-answer",
+  ICE_CANDIDATE = "ice-candidate",
 }
 
 enum ListenMessages {
@@ -23,6 +33,15 @@ enum ListenMessages {
   MAKE_ADMIN = "make-admin",
   DISMISS_ADMIN = "dismiss-admin",
   GET_USER_STATUS = "get-user-status",
+
+  // ─── Call signaling (client → server) ──────────────────────────────
+  CALL_INITIATE = "call-initiate",
+  CALL_ACCEPT = "call-accept",
+  CALL_REJECT = "call-reject",
+  CALL_END = "call-end",
+  WEBRTC_OFFER = "webrtc-offer",
+  WEBRTC_ANSWER = "webrtc-answer",
+  ICE_CANDIDATE = "ice-candidate",
 }
 
 export { EmitMessages, ListenMessages };
