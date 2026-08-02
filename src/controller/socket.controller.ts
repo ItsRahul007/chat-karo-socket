@@ -60,7 +60,6 @@ const updateLastSeen = async (email: string) => {
  * then send the notification to all the users
  */
 const sendMessageNotification = async ({
-  roomId,
   senderId,
   senderName,
   message,
@@ -68,7 +67,6 @@ const sendMessageNotification = async ({
   isCommunity = false,
   conversationId,
 }: {
-  roomId: string;
   senderId: string;
   senderName: string;
   message: string;
@@ -77,8 +75,8 @@ const sendMessageNotification = async ({
   conversationId?: string;
 }) => {
   try {
-    if (!roomId || !senderId) {
-      console.log("roomId or senderId is not defined");
+    if (!conversationId || !senderId) {
+      console.log("conversationId or senderId is not defined");
       return;
     }
 
@@ -88,7 +86,7 @@ const sendMessageNotification = async ({
       .neq("userId", senderId)
       .neq("isMuted", true)
       .neq("isBlocked", true)
-      .eq("conversationId", roomId)
+      .eq("conversationId", conversationId)
       .not("users.pushTokens", "is", null);
 
     // If specific participant IDs are provided, only query those
@@ -127,6 +125,8 @@ const sendMessageNotification = async ({
       body: groupName ? `${senderName}: ${message}` : message,
       categoryId: MESSAGE_CATEGORY_ID,
       channelId: MESSAGE_CHANNEL_ID,
+      // One notification per conversation, replaced as new messages land.
+      groupKey: String(conversationId),
       data: {
         conversationId,
         chatWithId: senderId,
@@ -171,6 +171,8 @@ const sendNotificationToSingleUser = async ({
       body: message,
       categoryId: MESSAGE_CATEGORY_ID,
       channelId: MESSAGE_CHANNEL_ID,
+      // One notification per conversation, replaced as new messages land.
+      groupKey: String(roomId),
       data: {
         conversationId: roomId,
         chatWithId: myId,

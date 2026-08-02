@@ -29,6 +29,9 @@ class PushNotificationHelper {
    * @param categoryId - Interactive category registered on the client. Message
    *   pushes use "message", which renders the Reply / Mark as read buttons.
    * @param channelId - Android channel the notification is delivered on
+   * @param groupKey - Collapses notifications that share it into a single entry
+   *   in the tray, replaced in place as new ones arrive. Message pushes use the
+   *   conversation id so a busy chat is one notification, not one per message.
    */
   async sendNotifications({
     tokens,
@@ -37,6 +40,7 @@ class PushNotificationHelper {
     data,
     categoryId,
     channelId,
+    groupKey,
   }: {
     tokens: string[];
     title: string;
@@ -44,6 +48,7 @@ class PushNotificationHelper {
     data?: any | undefined;
     categoryId?: string;
     channelId?: string;
+    groupKey?: string;
   }): Promise<ExpoPushTicket[]> {
     const messages: ExpoPushMessage[] = [];
 
@@ -65,6 +70,13 @@ class PushNotificationHelper {
         priority: "high",
         ...(categoryId ? { categoryId } : {}),
         ...(channelId ? { channelId } : {}),
+        /*
+         * `tag` is what Android keys the notification on — a repeat tag
+         * replaces the notification already in the tray. `collapseId` is the
+         * iOS equivalent (apns-collapse-id). Both are needed to get one
+         * notification per conversation on both platforms.
+         */
+        ...(groupKey ? { tag: groupKey, collapseId: groupKey } : {}),
         // Required on iOS for the action buttons to be attached to the
         // delivered notification.
         ...(categoryId ? { mutableContent: true } : {}),

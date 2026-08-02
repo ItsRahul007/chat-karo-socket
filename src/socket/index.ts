@@ -136,7 +136,6 @@ export function setupSocketHandlers(io: Server): void {
         // 3. Fire push notifications ONLY for users not currently in the conversation
         if (idsToNotify.length > 0 && !message.isEdited) {
           sendMessageNotification({
-            roomId: conversationId,
             senderId: myUserId,
             senderName: userFullName || "New Message",
             message: message.message,
