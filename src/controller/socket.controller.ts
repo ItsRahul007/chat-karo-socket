@@ -1,5 +1,9 @@
 import { TableNames } from "@/util/enum.js";
-import { pushNotificationHelper } from "@/util/push.notification.js";
+import {
+  MESSAGE_CATEGORY_ID,
+  MESSAGE_CHANNEL_ID,
+  pushNotificationHelper,
+} from "@/util/push.notification.js";
 import { supabase } from "@/util/supabase.js";
 
 const addPushTokenInDB = async (token: string, email: string) => {
@@ -121,9 +125,13 @@ const sendMessageNotification = async ({
       tokens: tokens,
       title: groupName ? groupName : senderName,
       body: groupName ? `${senderName}: ${message}` : message,
+      categoryId: MESSAGE_CATEGORY_ID,
+      channelId: MESSAGE_CHANNEL_ID,
       data: {
         conversationId,
         chatWithId: senderId,
+        isCommunity,
+        senderName,
       },
     });
   } catch (error) {
@@ -161,9 +169,13 @@ const sendNotificationToSingleUser = async ({
       tokens: tokens,
       title: senderName,
       body: message,
+      categoryId: MESSAGE_CATEGORY_ID,
+      channelId: MESSAGE_CHANNEL_ID,
       data: {
         conversationId: roomId,
         chatWithId: myId,
+        isCommunity: false,
+        senderName,
       },
     });
   } catch (error) {

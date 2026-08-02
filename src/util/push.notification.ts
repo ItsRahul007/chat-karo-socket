@@ -1,5 +1,13 @@
 import { Expo, ExpoPushMessage, ExpoPushTicket } from "expo-server-sdk";
 
+/*
+ * Both values must match the client (util/messageNotifications.ts). The
+ * category is what makes the Reply / Mark as read buttons appear — without it
+ * on the payload the client's registered actions are never attached.
+ */
+export const MESSAGE_CATEGORY_ID = "message";
+export const MESSAGE_CHANNEL_ID = "messages";
+
 /**
  * Push Notification Helper using Expo SDK
  */
@@ -18,17 +26,24 @@ class PushNotificationHelper {
    * @param title - Notification title
    * @param body - Notification body
    * @param data - Extra data payload
+   * @param categoryId - Interactive category registered on the client. Message
+   *   pushes use "message", which renders the Reply / Mark as read buttons.
+   * @param channelId - Android channel the notification is delivered on
    */
   async sendNotifications({
     tokens,
     title,
     body,
     data,
+    categoryId,
+    channelId,
   }: {
     tokens: string[];
     title: string;
     body: string;
     data?: any | undefined;
+    categoryId?: string;
+    channelId?: string;
   }): Promise<ExpoPushTicket[]> {
     const messages: ExpoPushMessage[] = [];
 
@@ -48,6 +63,11 @@ class PushNotificationHelper {
         body: body,
         data: data,
         priority: "high",
+        ...(categoryId ? { categoryId } : {}),
+        ...(channelId ? { channelId } : {}),
+        // Required on iOS for the action buttons to be attached to the
+        // delivered notification.
+        ...(categoryId ? { mutableContent: true } : {}),
       });
     }
 
