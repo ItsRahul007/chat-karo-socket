@@ -457,6 +457,19 @@ export function setupSocketHandlers(io: Server): void {
       },
     );
 
+    // Explicit camera on/off signal. The peer's video track staying silent is
+    // not a reliable "camera off" indicator (it also happens while media is
+    // still starting up), so the sender tells us directly.
+    socket.on(
+      ListenMessages.CAMERA_TOGGLE,
+      ({ targetId, enabled }: { targetId: string; enabled: boolean }) => {
+        io.to(String(targetId)).emit(EmitMessages.CAMERA_TOGGLED, {
+          enabled,
+          from: myUserId,
+        });
+      },
+    );
+
     // Disconnect
     socket.on(ListenMessages.DISCONNECT, async () => {
       console.log(`❌ User disconnected: ${myUserId}`);

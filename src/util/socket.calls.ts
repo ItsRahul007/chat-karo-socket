@@ -19,6 +19,7 @@ enum EmitMessages {
   WEBRTC_OFFER = "webrtc-offer",
   WEBRTC_ANSWER = "webrtc-answer",
   ICE_CANDIDATE = "ice-candidate",
+  CAMERA_TOGGLED = "camera-toggled",
 }
 
 enum ListenMessages {
@@ -42,6 +43,7 @@ enum ListenMessages {
   WEBRTC_OFFER = "webrtc-offer",
   WEBRTC_ANSWER = "webrtc-answer",
   ICE_CANDIDATE = "ice-candidate",
+  CAMERA_TOGGLE = "camera-toggle",
 }
 
 export { EmitMessages, ListenMessages };
