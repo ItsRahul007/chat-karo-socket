@@ -62,6 +62,8 @@ const updateLastSeen = async (email: string) => {
 const sendMessageNotification = async ({
   senderId,
   senderName,
+  senderAvatar,
+  messageId,
   message,
   participantUserIds,
   isCommunity = false,
@@ -69,6 +71,8 @@ const sendMessageNotification = async ({
 }: {
   senderId: string;
   senderName: string;
+  senderAvatar?: string;
+  messageId?: string;
   message: string;
   participantUserIds?: string[];
   isCommunity?: boolean;
@@ -132,6 +136,9 @@ const sendMessageNotification = async ({
         chatWithId: senderId,
         isCommunity,
         senderName,
+        senderAvatar,
+        // Lets the client ignore a push it has already folded into the thread.
+        messageId,
       },
     });
   } catch (error) {
@@ -145,12 +152,16 @@ const sendNotificationToSingleUser = async ({
   roomId,
   message,
   senderName,
+  senderAvatar,
+  messageId,
 }: {
   userId: string;
   myId: string;
   roomId: string;
   message: string;
   senderName: string;
+  senderAvatar?: string;
+  messageId?: string;
 }) => {
   try {
     const { data, error } = await supabase
@@ -178,6 +189,9 @@ const sendNotificationToSingleUser = async ({
         chatWithId: myId,
         isCommunity: false,
         senderName,
+        senderAvatar,
+        // Lets the client ignore a push it has already folded into the thread.
+        messageId,
       },
     });
   } catch (error) {

@@ -110,6 +110,8 @@ export function setupSocketHandlers(io: Server): void {
                 myId: myUserId,
                 message: message.message,
                 senderName: userFullName || "New Message",
+                senderAvatar: socket.data.user.avatar,
+                messageId: message.id?.toString(),
                 roomId: conversationId,
               });
             }
@@ -138,6 +140,8 @@ export function setupSocketHandlers(io: Server): void {
           sendMessageNotification({
             senderId: myUserId,
             senderName: userFullName || "New Message",
+            senderAvatar: socket.data.user.avatar,
+            messageId: message.id?.toString(),
             message: message.message,
             participantUserIds: idsToNotify,
             isCommunity: true,
